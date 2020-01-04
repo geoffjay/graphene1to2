@@ -1,6 +1,8 @@
 appdirs==1.4.3
+astpretty==1.7.0
 attrs==19.3.0
 bowler==0.8.0
 Click==7.0
 fissix==19.2b1
+pydevd===pycharm
 sh==1.12.14
