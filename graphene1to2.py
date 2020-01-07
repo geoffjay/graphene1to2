@@ -3,14 +3,11 @@ Refactoring Graphene 1 -> 2
 """
 
 import sys
+import pprint
 
-from lib2to3.fixer_util import Name
-from typing import Optional
+from bowler import Query
 
-from bowler import Query, Filename, Capture, LN, TOKEN
-from bowler.helpers import print_tree
-from bowler.types import Leaf, Node
-from fissix.pygram import python_symbols as syms
+from graphene1to2 import callback as cb
 
 
 ARGS_PATTERN = """
@@ -62,89 +59,12 @@ query = {
     'decrapify-explicit-object-superclass': False,
     'deprecation-abstract-type': False,
     'deprecation-resolve-only-args': False,  # XXX: doesn't work, but not used in code base
-    'deprecation-mutation-input': True,
+    'deprecation-mutation-input': False,
     'breaking-simpler-resolvers': True,
-    'breaking-node-connections': True,
+    'breaking-node-connections': False,
 }
 
 
-def remove_super_args(node: LN, capture: Capture, filename: Filename):
-    super_classname = capture['classname'].value
-
-    classdef = node
-    while classdef.type != syms.classdef:
-        classdef = classdef.parent
-
-    actual_classname = classdef.children[1].value
-
-    if actual_classname != super_classname:
-        return
-
-    capture['arglist'].remove()
-
-
-def remove_explicit_object_superclass(node: LN, capture: Capture, filename: Filename):
-    param = capture['param'][0]
-    if param.type == TOKEN.NAME:
-        # 'object'
-        capture['lpar'].remove()
-        param.remove()
-        capture['rpar'].remove()
-    elif param.type == syms.arglist:
-        kwarg = capture['kwarg'].clone()
-        kwarg.prefix = param.prefix
-        param.replace(kwarg)
-
-
-def replace_abstract_type(node: LN, capture: Capture, filename: Filename) -> Optional[LN]:
-    param = capture['param'][0]
-
-    if param.type == TOKEN.NAME:
-        param.replace(Name('object'))
-
-    return node
-
-
-def remove_resolve_only_args(node: LN, capture: Capture, filename: Filename) -> Optional[LN]:
-    """
-    This one doesn't matter to us since there are no occurences of @resolve_only_args.
-    XXX: don't use this
-    """
-
-    # Remove the decorator
-    decorator = capture.get('decorator')
-    if decorator is None:
-        decorators = capture.get('decorators')
-    else:
-        decorators = Node(children=[decorator])
-
-    if decorator is not None:
-        for d in decorator.children:
-            print(f'{d}')
-        print(f'Child count: {len(decorator.children)}')
-        if Leaf(1, 'resolve_only_args') in decorator.children:
-            pos = decorator.children.index(Leaf(1, 'resolve_only_args'))
-            print(f'at pos: {pos}')
-            print(f'{decorator.children[pos]}')
-            decorator.remove()
-
-    # Add 'info' to the parameter list
-    print(capture.get('resolver'))
-    param = capture.get('param')
-    if param is not None:
-        print(param)
-
-    return node
-
-
-def replace_mutation_input(node: LN, capture: Capture, filename: Filename) -> Optional[LN]:
-    cls = capture['input'][0]
-
-    if cls.type == TOKEN.NAME:
-        # FIXME: without the space the transformation fails
-        cls.replace(Name(' Arguments'))
-
-    return node
 
 
 def main():
@@ -159,10 +79,11 @@ def main():
     #  testing this treats every pattern as a different hunk
 
     # Simple query to dump classes
+    pp = pprint.PrettyPrinter(indent=4, width=41, compact=True)
     query['print-class'] and (
         Query(path)
         .select('classdef< "class" name=NAME "(" any* ")" ":" suite >')
-        .modify(callback=lambda node, capture, filename: print(f'{capture}'))
+        .modify(callback=lambda node, capture, filename: pp.pprint(capture))
         .execute(
             interactive=True,
             write=False,
@@ -172,7 +93,7 @@ def main():
     query['decrapify-super-args'] and (
         Query(path)
         .select(ARGS_PATTERN)
-        .modify(callback=remove_super_args)
+        .modify(callback=cb.remove_super_args)
         .execute(
             interactive=True,
             write=False,
@@ -182,7 +103,7 @@ def main():
     query['decrapify-explicit-object-superclass'] and (
         Query(path)
         .select(EXPLICIT_PATTERN)
-        .modify(callback=remove_explicit_object_superclass)
+        .modify(callback=cb.remove_explicit_object_superclass)
         .execute(
             interactive=True,
             write=False,
@@ -192,7 +113,7 @@ def main():
     query['deprecation-abstract-type'] and (
         Query(path)
         .select(ABS_PATTERN)
-        .modify(callback=replace_abstract_type)
+        .modify(callback=cb.replace_abstract_type)
         .execute(
             interactive=True,
             write=False,
@@ -219,7 +140,7 @@ def main():
                 >
             >
             """)
-        .modify(callback=remove_resolve_only_args)
+        .modify(callback=cb.remove_resolve_only_args)
         .execute(
             interactive=True,
             write=False,
@@ -245,7 +166,51 @@ def main():
             >
             """
         )
-        .modify(callback=replace_mutation_input)
+        .modify(callback=cb.replace_mutation_input)
+        .execute(
+            interactive=True,
+            write=False,
+        )
+    )
+    # Change resolvers
+    query['breaking-simpler-resolvers'] and (
+        Query(path)
+        .select(
+            """
+            classdef<
+                "class" name=NAME any* ":"
+                suite<
+                    any*
+                    funcdef<
+                        "def" resolver=NAME param=parameters ":" suite
+                    >
+                    any*
+                >
+            >
+        param=(
+            "AbstractType"
+            | arglist<
+                "AbstractType" ","
+                kwarg=argument
+            >
+        )
+            """
+        )
+        .modify(callback=cb.breaking_simpler_resolvers)
+        .execute(
+            interactive=True,
+            write=False,
+        )
+    )
+    # Change node connections
+    query['breaking-node-connections'] and (
+        Query(path)
+        .select(
+            """
+            classdef< "class" name=NAME any* ":" suite >
+            """
+        )
+        .modify(callback=lambda node, capture, filename: print(f'{capture}'))
         .execute(
             interactive=True,
             write=False,
