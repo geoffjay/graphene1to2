@@ -69,9 +69,7 @@ query = {
 
 def main():
     """
-    Graphene 2 refactoring.
-
-    Run with: python graphene2.py ./src
+    PyBowler migrations to perform a Graphene 1 -> 2 upgrade.
     """
     path = sys.argv[1]
 
