@@ -65,8 +65,6 @@ query = {
 }
 
 
-
-
 def main():
     """
     PyBowler migrations to perform a Graphene 1 -> 2 upgrade.
